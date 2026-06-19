@@ -54,7 +54,7 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
   return (
     <>
       {/* Search + filter */}
-      <div className="mt-5 flex items-center gap-2">
+      <div className="mt-5 flex max-w-2xl items-center gap-2">
         <div className="relative flex-1">
           <Search
             className="pointer-events-none absolute left-3.5 top-1/2 size-[18px] -translate-y-1/2 text-tertiary"
@@ -79,7 +79,7 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
       </div>
 
       {/* List */}
-      <section className="mt-5 flex flex-col gap-3">
+      <section className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.length === 0 ? (
           <EmptyState hasAds={ads.length > 0} filtered={query.trim() !== "" || filtersActive} />
         ) : (
@@ -133,7 +133,7 @@ function AdRow({ ad, index }: { ad: AdListItem; index: number }) {
 
 function EmptyState({ hasAds, filtered }: { hasAds: boolean; filtered: boolean }) {
   return (
-    <div className="mt-10 flex flex-col items-center gap-1 rounded-2xl border border-dashed border-border bg-card/50 px-6 py-12 text-center">
+    <div className="col-span-full mt-10 flex flex-col items-center gap-1 rounded-2xl border border-dashed border-border bg-card/50 px-6 py-12 text-center">
       <p className="font-medium text-foreground">
         {filtered ? "No matches" : hasAds ? "No matches" : "No ads yet"}
       </p>

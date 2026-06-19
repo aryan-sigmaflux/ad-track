@@ -11,9 +11,9 @@ export default async function HomePage() {
   const ads = await getAds(session.userId);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pb-28 pt-6">
+    <main className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 pb-28 pt-6 md:px-8 md:pt-10">
       <header className="flex items-center justify-between">
-        <h1 className="text-[22px] font-bold tracking-tight">
+        <h1 className="text-[22px] font-bold tracking-tight md:text-3xl">
           Hi, <span className="text-foreground">{session.username}</span>
         </h1>
         <AccountMenu username={session.username} />

@@ -36,18 +36,22 @@ export function AddAdDialog() {
 
   return (
     <>
-      {/* Floating add button */}
+      {/* Floating add button — circle on mobile, labeled pill on desktop */}
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Add new ad"
-        className="group fixed bottom-7 left-1/2 z-40 flex size-15 -translate-x-1/2 items-center justify-center rounded-full bg-gradient-to-br from-brand to-primary text-primary-foreground shadow-[0_12px_30px_-6px_color-mix(in_oklch,var(--brand)_70%,transparent)] ring-1 ring-white/10 transition-transform duration-200 hover:scale-110 active:scale-95"
+        className="group fixed bottom-7 left-1/2 z-40 flex size-15 -translate-x-1/2 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-brand to-primary text-primary-foreground shadow-[0_12px_30px_-6px_color-mix(in_oklch,var(--brand)_70%,transparent)] ring-1 ring-white/10 transition-transform duration-200 hover:scale-105 active:scale-95 md:bottom-8 md:left-auto md:right-8 md:size-auto md:translate-x-0 md:px-6 md:py-4"
       >
         <span
           aria-hidden
           className="absolute inset-0 -z-10 rounded-full bg-brand/40 opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-100"
         />
-        <Plus className="size-7 transition-transform duration-300 group-hover:rotate-90" strokeWidth={2.5} />
+        <Plus
+          className="size-7 transition-transform duration-300 group-hover:rotate-90 md:size-5"
+          strokeWidth={2.5}
+        />
+        <span className="hidden text-[15px] font-semibold md:inline">New ad</span>
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>

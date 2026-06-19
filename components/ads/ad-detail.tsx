@@ -25,9 +25,9 @@ export function AdDetailView({ detail }: { detail: AdDetail }) {
   const datesWithData = useMemo(() => new Set(metrics.map((m) => m.date)), [metrics]);
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 px-5 pb-12">
+    <main className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-4 px-5 pb-12 md:px-8">
       {/* Header (frozen on scroll) */}
-      <header className="sticky top-0 z-30 -mx-5 flex items-center justify-between gap-3 border-b border-border/60 bg-background/80 px-5 py-3 backdrop-blur-md">
+      <header className="sticky top-0 z-30 -mx-5 flex items-center justify-between gap-3 border-b border-border/60 bg-background/80 px-5 py-3 backdrop-blur-md md:-mx-8 md:px-8 md:py-4">
         <div className="flex min-w-0 items-center gap-1">
           <Link
             href="/"
@@ -78,25 +78,31 @@ export function AdDetailView({ detail }: { detail: AdDetail }) {
         )}
       </div>
 
-      <div className="animate-rise" style={{ animationDelay: "40ms" }}>
-        <AdCalendar
-          periods={periods}
-          datesWithData={datesWithData}
-          selected={selected}
-          onSelect={setSelected}
-        />
-      </div>
+      <div className="grid gap-4 lg:grid-cols-5 lg:items-start">
+        {/* Calendar (left / wider) */}
+        <div className="animate-rise lg:col-span-3 lg:sticky lg:top-24" style={{ animationDelay: "40ms" }}>
+          <AdCalendar
+            periods={periods}
+            datesWithData={datesWithData}
+            selected={selected}
+            onSelect={setSelected}
+          />
+        </div>
 
-      <div className="animate-rise" style={{ animationDelay: "90ms" }}>
-        <SelectedRun periods={periods} metrics={metrics} selected={selected} />
-      </div>
+        {/* Details (right) */}
+        <div className="flex flex-col gap-4 lg:col-span-2">
+          <div className="animate-rise" style={{ animationDelay: "90ms" }}>
+            <SelectedRun periods={periods} metrics={metrics} selected={selected} />
+          </div>
 
-      <div className="animate-rise" style={{ animationDelay: "140ms" }}>
-        <DayDetail adId={ad.id} date={selected} metric={metricsByDate.get(selected)} />
-      </div>
+          <div className="animate-rise" style={{ animationDelay: "140ms" }}>
+            <DayDetail adId={ad.id} date={selected} metric={metricsByDate.get(selected)} />
+          </div>
 
-      <div className="animate-rise" style={{ animationDelay: "190ms" }}>
-        <RangeSummary metrics={metrics} />
+          <div className="animate-rise" style={{ animationDelay: "190ms" }}>
+            <RangeSummary metrics={metrics} />
+          </div>
+        </div>
       </div>
 
       <EditAdDialog ad={ad} status={status} open={editOpen} onOpenChange={setEditOpen} />
