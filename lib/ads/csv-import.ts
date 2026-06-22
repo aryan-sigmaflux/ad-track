@@ -206,7 +206,13 @@ export function matchRow(row: CsvRow, ads: AdOption[]): RowMatch {
   let confidence: Confidence = "none";
   let suggestedAdId: string | null = null;
 
-  if (best && best.score >= STRONG && (!second || best.score - second.score >= MARGIN)) {
+  // An exact (normalized) name match is unambiguous, so it doesn't need the
+  // runner-up margin — as long as nothing else ties it at the same score.
+  const isExact = !!best && best.score >= 0.999;
+  const clearWinner = !second || best.score - second.score >= MARGIN;
+  const exactWinner = isExact && (!second || second.score < best.score);
+
+  if (best && best.score >= STRONG && (clearWinner || exactWinner)) {
     confidence = "strong";
     suggestedAdId = best.adId;
   } else if (best && best.score >= WEAK) {

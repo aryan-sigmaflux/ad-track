@@ -54,7 +54,6 @@ export function UploadCsvDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<ReviewRow[] | null>(null);
   const [fileName, setFileName] = useState("");
-  const [skippedCount, setSkippedCount] = useState(0);
   const [parseError, setParseError] = useState("");
   const [pending, setPending] = useState(false);
   // Set when the server reports (ad, day) rows that already have different data.
@@ -66,7 +65,6 @@ export function UploadCsvDialog({
     if (!next) {
       setRows(null);
       setFileName("");
-      setSkippedCount(0);
       setParseError("");
       setConflicts(null);
       setResolutions({});
@@ -78,7 +76,7 @@ export function UploadCsvDialog({
   const handleFile = async (file: File) => {
     setParseError("");
     const text = await file.text();
-    const { rows: csvRows, skipped, error } = extractRows(text);
+    const { rows: csvRows, error } = extractRows(text);
     if (error) {
       setParseError(error);
       return;
@@ -89,7 +87,6 @@ export function UploadCsvDialog({
     }
     const matches = matchRows(csvRows, ads);
     setFileName(file.name);
-    setSkippedCount(skipped);
     // An existing ad can only be auto-assigned to one row. If two rows fuzzy-match
     // the same ad (e.g. "26_May_Aspire" and "3. 26_May_Aspire"), the later one
     // falls back to "new" so the user can resolve it — otherwise both rows would
@@ -232,7 +229,6 @@ export function UploadCsvDialog({
               <span className="truncate">{fileName}</span>
               <span className="shrink-0">
                 {rows.length} {rows.length === 1 ? "ad" : "ads"}
-                {skippedCount > 0 ? ` · ${skippedCount} skipped` : ""}
               </span>
             </div>
 
