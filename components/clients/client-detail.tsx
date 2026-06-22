@@ -4,38 +4,55 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ClientDetail } from "@/lib/types";
-import { formatYMD, fromYMD, monthLabel, startOfMonth, todayYMD } from "@/lib/dates";
+import { formatYMD, presetRange, todayYMD, type RangeKey } from "@/lib/dates";
 import { ClientCalendar } from "@/components/clients/client-calendar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const num = (n: number) =>
   new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n);
+
+const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
+  { key: "lastWeek", label: "Last week" },
+  { key: "last7", label: "Last 7 days" },
+  { key: "lastMonth", label: "Last month" },
+  { key: "last30", label: "Last 30 days" },
+  { key: "custom", label: "Custom" },
+];
 
 export function ClientDetailView({ detail }: { detail: ClientDetail }) {
   const today = todayYMD();
   const [day, setDay] = useState(today);
 
-  const totals = useMemo(() => {
-    let spend = 0;
-    let leads = 0;
-    for (const a of detail.ads) {
-      spend += a.spend;
-      leads += a.leads;
-    }
-    return { spend, leads };
-  }, [detail.ads]);
+  const [rangeKey, setRangeKey] = useState<RangeKey>("lastMonth");
+  const [customStart, setCustomStart] = useState(today);
+  const [customEnd, setCustomEnd] = useState(today);
 
-  const month = useMemo(() => {
-    const start = startOfMonth(today);
+  const range = useMemo(() => {
+    if (rangeKey === "custom") return { start: customStart, end: customEnd };
+    return presetRange(rangeKey, today);
+  }, [rangeKey, customStart, customEnd, today]);
+
+  const rangeTotals = useMemo(() => {
+    const lo = range.start <= range.end ? range.start : range.end;
+    const hi = range.start <= range.end ? range.end : range.start;
     let spend = 0;
     let leads = 0;
     for (const d of detail.daily) {
-      if (d.date >= start && d.date <= today) {
+      if (d.date >= lo && d.date <= hi) {
         spend += d.spend;
         leads += d.leads;
       }
     }
     return { spend, leads };
-  }, [detail.daily, today]);
+  }, [detail.daily, range]);
 
   const dayTotals = useMemo(
     () => detail.daily.find((d) => d.date === day) ?? { spend: 0, leads: 0 },
@@ -48,10 +65,6 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
   );
 
   const runningCount = detail.ads.filter((a) => a.status === "running").length;
-  const monthName = (() => {
-    const d = fromYMD(today);
-    return monthLabel(d.getFullYear(), d.getMonth());
-  })();
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-4 px-5 pb-16 md:px-8">
@@ -73,9 +86,7 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
       </header>
 
       {/* Top-line totals */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Total spend" value={num(totals.spend)} />
-        <StatCard label="Total leads" value={num(totals.leads)} />
+      <section className="grid grid-cols-2 gap-3">
         <StatCard label="Ads" value={String(detail.ads.length)} />
         <StatCard label="Running" value={String(runningCount)} />
       </section>
@@ -99,11 +110,58 @@ export function ClientDetailView({ detail }: { detail: ClientDetail }) {
           </Card>
 
           <Card>
-            <h2 className="text-base font-semibold">This month</h2>
-            <p className="mt-1 text-xs text-muted-foreground">{monthName}</p>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold">Overview</h2>
+              <Select value={rangeKey} onValueChange={(v) => setRangeKey(v as RangeKey)}>
+                <SelectTrigger className="w-36 rounded-full" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RANGE_OPTIONS.map((o) => (
+                    <SelectItem key={o.key} value={o.key}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {rangeKey === "custom" && (
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="client-range-start" className="text-xs text-muted-foreground">
+                    From
+                  </Label>
+                  <Input
+                    id="client-range-start"
+                    type="date"
+                    value={customStart}
+                    max={customEnd}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="client-range-end" className="text-xs text-muted-foreground">
+                    To
+                  </Label>
+                  <Input
+                    id="client-range-end"
+                    type="date"
+                    value={customEnd}
+                    min={customStart}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <p className="mt-2 text-xs text-muted-foreground">
+              {formatYMD(range.start <= range.end ? range.start : range.end)} –{" "}
+              {formatYMD(range.start <= range.end ? range.end : range.start)}
+            </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Stat label="Spend" value={num(month.spend)} />
-              <Stat label="Leads" value={num(month.leads)} />
+              <Stat label="Spend" value={num(rangeTotals.spend)} />
+              <Stat label="Leads" value={num(rangeTotals.leads)} />
             </div>
           </Card>
         </div>

@@ -36,7 +36,14 @@ export function startOfMonth(s: string): string {
   return toYMD(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
-export type RangeKey = "last7" | "last30" | "thisWeek" | "thisMonth" | "custom";
+export type RangeKey =
+  | "last7"
+  | "last30"
+  | "lastWeek"
+  | "lastMonth"
+  | "thisWeek"
+  | "thisMonth"
+  | "custom";
 
 export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: "last7", label: "Last 7 days" },
@@ -56,6 +63,17 @@ export function presetRange(key: Exclude<RangeKey, "custom">, today = todayYMD()
       return { start: addDays(today, -6), end: today };
     case "last30":
       return { start: addDays(today, -29), end: today };
+    case "lastWeek": {
+      const weekStart = startOfWeek(today);
+      return { start: addDays(weekStart, -7), end: addDays(weekStart, -1) };
+    }
+    case "lastMonth": {
+      const d = fromYMD(today);
+      return {
+        start: toYMD(new Date(d.getFullYear(), d.getMonth() - 1, 1)),
+        end: toYMD(new Date(d.getFullYear(), d.getMonth(), 0)),
+      };
+    }
     case "thisWeek":
       return { start: startOfWeek(today), end: today };
     case "thisMonth":
