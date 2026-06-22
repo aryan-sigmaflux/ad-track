@@ -290,11 +290,34 @@ export type CsvAssignment =
   | { kind: "existing"; adId: string; date: string; spend: number; leads: number }
   | { kind: "new"; name: string; date: string; spend: number; leads: number };
 
-/** Apply a reviewed CSV upload: create ads for "new" rows, then upsert one daily
- *  metric per row. Ownership is checked once up-front. */
+/** A row whose (ad, day) already has different data in the database. The user
+ *  must pick which value to keep before the import can proceed. */
+export type MetricConflict = {
+  adId: string;
+  date: string;
+  existing: { spend: number; leads: number };
+  incoming: { spend: number; leads: number };
+};
+
+/** Per-conflict choice, keyed by `${adId}|${date}`: keep the existing (manually
+ *  entered) value, or overwrite it with the CSV value. */
+export type ConflictChoice = "keep" | "csv";
+
+export type ImportResult =
+  | { ok: true; count: number; skipped: number }
+  | { ok: false; error: string; conflicts?: MetricConflict[] };
+
+const conflictKey = (adId: string, date: string) => `${adId}|${date}`;
+const spendsEqual = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/** Apply a reviewed CSV upload. For each "existing" target whose (ad, day)
+ *  already has data: identical values are skipped, and differing values are
+ *  returned as conflicts (nothing is written) unless the caller passed a choice
+ *  in `resolutions`. "new" rows create their ad and never conflict. */
 export async function importCsvMetrics(
   items: CsvAssignment[],
-): Promise<ActionResult & { count?: number }> {
+  resolutions: Record<string, ConflictChoice> = {},
+): Promise<ImportResult> {
   try {
     const { userId } = await requireUser();
     if (items.length === 0) return { ok: false, error: "Nothing to import." };
@@ -302,59 +325,115 @@ export async function importCsvMetrics(
     const supabase = createAdminClient();
 
     // Validate every "existing" target belongs to this user (one query).
-    const existingIds = Array.from(
-      new Set(items.filter((i) => i.kind === "existing").map((i) => (i as { adId: string }).adId)),
+    const existingItems = items.filter(
+      (i): i is Extract<CsvAssignment, { kind: "existing" }> => i.kind === "existing",
     );
+    const existingIds = Array.from(new Set(existingItems.map((i) => i.adId)));
     if (existingIds.length > 0) {
-      const { data: owned } = await supabase
+      const { data: owned, error: ownedError } = await supabase
         .from("ads")
         .select("id")
         .eq("user_id", userId)
         .in("id", existingIds);
+      if (ownedError) console.error("[importCsvMetrics] ownership query failed:", ownedError);
       const ownedSet = new Set((owned ?? []).map((a) => a.id));
       if (existingIds.some((id) => !ownedSet.has(id)))
         return { ok: false, error: "One of the selected ads could not be found." };
     }
 
-    // Build the metric rows, creating new ads as needed.
-    const metricRows: { ad_id: string; date: string; spend: number; leads: number }[] = [];
-    for (const item of items) {
+    type Row = { ad_id: string; date: string; spend: number; leads: number };
+    const rowsToWrite: Row[] = [];
+    let skipped = 0;
+
+    // Normalize the "existing" rows, de-duped by (ad, day) — a single command
+    // can't upsert the same conflict target twice.
+    const incoming = new Map<string, Row>();
+    for (const item of existingItems) {
       const date = String(item.date).slice(0, 10);
       const spend = Number(item.spend);
       const leads = Math.trunc(Number(item.leads));
-      if (!date) continue;
-      if (!Number.isFinite(spend) || spend < 0) continue;
+      if (!date || !Number.isFinite(spend) || spend < 0) continue;
       const safeLeads = Number.isFinite(leads) && leads >= 0 ? leads : 0;
-
-      let adId: string;
-      if (item.kind === "new") {
-        const name = cleanText(item.name);
-        if (!name) continue;
-        const { data: ad, error } = await supabase
-          .from("ads")
-          .insert({ user_id: userId, name, client: null, start_date: date })
-          .select("id")
-          .single();
-        if (error || !ad) return { ok: false, error: `Could not create the ad "${name}".` };
-        await supabase.from("ad_run_periods").insert({ ad_id: ad.id, start_date: date, end_date: null });
-        adId = ad.id;
-      } else {
-        adId = item.adId;
-      }
-      metricRows.push({ ad_id: adId, date, spend, leads: safeLeads });
+      incoming.set(conflictKey(item.adId, date), { ad_id: item.adId, date, spend, leads: safeLeads });
     }
 
-    if (metricRows.length === 0) return { ok: false, error: "Nothing to import." };
+    // Look up whatever already exists for those (ad, day) pairs.
+    const current = new Map<string, { spend: number; leads: number }>();
+    if (incoming.size > 0) {
+      const dates = Array.from(new Set([...incoming.values()].map((r) => r.date)));
+      const { data: metrics, error: mErr } = await supabase
+        .from("ad_daily_metrics")
+        .select("ad_id, date, spend, leads")
+        .in("ad_id", existingIds)
+        .in("date", dates);
+      if (mErr) console.error("[importCsvMetrics] metrics lookup failed:", mErr);
+      for (const m of metrics ?? [])
+        current.set(conflictKey(m.ad_id, m.date), { spend: Number(m.spend), leads: Number(m.leads) });
+    }
+
+    // Classify each incoming "existing" row: new / identical / conflict.
+    const conflicts: MetricConflict[] = [];
+    for (const [key, row] of incoming) {
+      const existing = current.get(key);
+      if (!existing) {
+        rowsToWrite.push(row); // no data yet — just insert
+        continue;
+      }
+      if (existing.leads === row.leads && spendsEqual(existing.spend, row.spend)) {
+        skipped++; // identical — nothing to do
+        continue;
+      }
+      const choice = resolutions[key];
+      if (choice === "csv") rowsToWrite.push(row);
+      else if (choice === "keep") skipped++;
+      else conflicts.push({ adId: row.ad_id, date: row.date, existing, incoming: { spend: row.spend, leads: row.leads } });
+    }
+
+    // Don't write anything (or create new ads) until conflicts are resolved.
+    if (conflicts.length > 0)
+      return { ok: false, error: "Some rows already have data for that day.", conflicts };
+
+    // Now safe to create "new" ads — brand-new rows can't conflict.
+    for (const item of items) {
+      if (item.kind !== "new") continue;
+      const date = String(item.date).slice(0, 10);
+      const spend = Number(item.spend);
+      const leads = Math.trunc(Number(item.leads));
+      if (!date || !Number.isFinite(spend) || spend < 0) continue;
+      const safeLeads = Number.isFinite(leads) && leads >= 0 ? leads : 0;
+      const name = cleanText(item.name);
+      if (!name) continue;
+      const { data: ad, error } = await supabase
+        .from("ads")
+        .insert({ user_id: userId, name, client: null, start_date: date })
+        .select("id")
+        .single();
+      if (error || !ad) {
+        console.error("[importCsvMetrics] create ad failed:", error);
+        return { ok: false, error: `Could not create the ad "${name}".` };
+      }
+      await supabase.from("ad_run_periods").insert({ ad_id: ad.id, start_date: date, end_date: null });
+      rowsToWrite.push({ ad_id: ad.id, date, spend, leads: safeLeads });
+    }
+
+    if (rowsToWrite.length === 0) {
+      if (skipped > 0) return { ok: true, count: 0, skipped }; // all rows were already up to date
+      return { ok: false, error: "Nothing to import." };
+    }
 
     const { error } = await supabase
       .from("ad_daily_metrics")
-      .upsert(metricRows, { onConflict: "ad_id,date" });
-    if (error) return { ok: false, error: "Could not save the imported data." };
+      .upsert(rowsToWrite, { onConflict: "ad_id,date" });
+    if (error) {
+      console.error("[importCsvMetrics] upsert failed:", error);
+      return { ok: false, error: "Could not save the imported data." };
+    }
 
     revalidatePath("/");
-    for (const id of new Set(metricRows.map((m) => m.ad_id))) revalidatePath(`/ads/${id}`);
-    return { ok: true, count: metricRows.length };
-  } catch {
+    for (const id of new Set(rowsToWrite.map((m) => m.ad_id))) revalidatePath(`/ads/${id}`);
+    return { ok: true, count: rowsToWrite.length, skipped };
+  } catch (e) {
+    console.error("[importCsvMetrics] threw:", e);
     return { ok: false, error: "Something went wrong during import." };
   }
 }

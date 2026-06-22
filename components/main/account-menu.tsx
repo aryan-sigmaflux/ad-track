@@ -30,7 +30,7 @@ export function AccountMenu({ username }: { username: string }) {
           </Button>
         }
       />
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="start" className="w-44">
         <DropdownMenuLabel className="truncate">{username}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem

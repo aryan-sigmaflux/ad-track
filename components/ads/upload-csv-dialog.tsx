@@ -13,7 +13,12 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
-import { importCsvMetrics, type CsvAssignment } from "@/lib/ads/actions";
+import {
+  importCsvMetrics,
+  type CsvAssignment,
+  type ConflictChoice,
+  type MetricConflict,
+} from "@/lib/ads/actions";
 import { extractRows, matchRows, type AdOption, type RowMatch } from "@/lib/ads/csv-import";
 import { formatYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -33,6 +38,9 @@ type Target = string | "new" | "skip";
 
 type ReviewRow = RowMatch & { target: Target };
 
+// Mirror of the server's conflict key (`${adId}|${date}`).
+const conflictKey = (adId: string, date: string) => `${adId}|${date}`;
+
 export function UploadCsvDialog({
   ads,
   open,
@@ -49,6 +57,9 @@ export function UploadCsvDialog({
   const [skippedCount, setSkippedCount] = useState(0);
   const [parseError, setParseError] = useState("");
   const [pending, setPending] = useState(false);
+  // Set when the server reports (ad, day) rows that already have different data.
+  const [conflicts, setConflicts] = useState<MetricConflict[] | null>(null);
+  const [resolutions, setResolutions] = useState<Record<string, ConflictChoice>>({});
 
   // Reset everything as the dialog closes (handled here, not in an effect).
   const handleOpenChange = (next: boolean) => {
@@ -57,6 +68,8 @@ export function UploadCsvDialog({
       setFileName("");
       setSkippedCount(0);
       setParseError("");
+      setConflicts(null);
+      setResolutions({});
       if (fileRef.current) fileRef.current.value = "";
     }
     onOpenChange(next);
@@ -77,7 +90,19 @@ export function UploadCsvDialog({
     const matches = matchRows(csvRows, ads);
     setFileName(file.name);
     setSkippedCount(skipped);
-    setRows(matches.map((m) => ({ ...m, target: (m.suggestedAdId ?? "new") as Target })));
+    // An existing ad can only be auto-assigned to one row. If two rows fuzzy-match
+    // the same ad (e.g. "26_May_Aspire" and "3. 26_May_Aspire"), the later one
+    // falls back to "new" so the user can resolve it — otherwise both rows would
+    // import the same (ad, day) and the upsert fails.
+    const claimed = new Set<string>();
+    setRows(
+      matches.map((m) => {
+        let target: Target = m.suggestedAdId ?? "new";
+        if (target !== "new" && claimed.has(target)) target = "new";
+        if (target !== "new") claimed.add(target);
+        return { ...m, target };
+      }),
+    );
   };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,42 +124,85 @@ export function UploadCsvDialog({
 
   const importCount = rows?.filter((r) => r.target !== "skip").length ?? 0;
 
-  const submit = async () => {
-    if (!rows) return;
-    const items: CsvAssignment[] = rows
-      .filter((r) => r.target !== "skip")
-      .map((r) =>
-        r.target === "new"
-          ? { kind: "new", name: r.row.name, date: r.row.date, spend: r.row.spend, leads: r.row.leads }
-          : { kind: "existing", adId: r.target, date: r.row.date, spend: r.row.spend, leads: r.row.leads },
-      );
-    if (items.length === 0) return;
+  const items = useMemo<CsvAssignment[]>(
+    () =>
+      (rows ?? [])
+        .filter((r) => r.target !== "skip")
+        .map((r) =>
+          r.target === "new"
+            ? { kind: "new", name: r.row.name, date: r.row.date, spend: r.row.spend, leads: r.row.leads }
+            : { kind: "existing", adId: r.target, date: r.row.date, spend: r.row.spend, leads: r.row.leads },
+        ),
+    [rows],
+  );
 
+  const runImport = async (withResolutions: Record<string, ConflictChoice>) => {
+    if (items.length === 0) return;
     setPending(true);
-    const res = await importCsvMetrics(items);
+    const res = await importCsvMetrics(items, withResolutions);
     setPending(false);
+
     if (res.ok) {
-      toast.success(`Imported ${res.count ?? items.length} ${(res.count ?? items.length) === 1 ? "row" : "rows"}`);
+      const parts = [`Imported ${res.count} ${res.count === 1 ? "row" : "rows"}`];
+      if (res.skipped > 0) parts.push(`${res.skipped} unchanged`);
+      toast.success(parts.join(" · "));
       handleOpenChange(false);
       router.refresh();
-    } else {
-      toast.error(res.error);
+      return;
     }
+    if (res.conflicts && res.conflicts.length > 0) {
+      // Default each conflict to "use CSV"; the user can flip any to "keep".
+      setResolutions((prev) => {
+        const next = { ...prev };
+        for (const c of res.conflicts!) next[conflictKey(c.adId, c.date)] ??= "csv";
+        return next;
+      });
+      setConflicts(res.conflicts);
+      return;
+    }
+    toast.error(res.error);
+  };
+
+  const submit = () => runImport(resolutions);
+  const confirmConflicts = () => {
+    // Make sure every shown conflict carries a choice (default: use CSV).
+    const complete = { ...resolutions };
+    for (const c of conflicts ?? []) complete[conflictKey(c.adId, c.date)] ??= "csv";
+    runImport(complete);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className={cn(rows && "sm:max-w-2xl")}>
         <DialogHeader>
-          <DialogTitle>Upload a CSV</DialogTitle>
+          <DialogTitle>{conflicts ? "Resolve conflicts" : "Upload a CSV"}</DialogTitle>
           <DialogDescription>
-            {rows
-              ? "Check each ad was matched correctly, then import. Nothing is saved until you confirm."
-              : "Upload a day's ads report. We'll fill in spend and leads for each ad."}
+            {conflicts
+              ? "These ads already have data for that day. Choose which value to keep for each."
+              : rows
+                ? "Check each ad was matched correctly, then import. Nothing is saved until you confirm."
+                : "Upload a day's ads report. We'll fill in spend and leads for each ad."}
           </DialogDescription>
         </DialogHeader>
 
-        {!rows ? (
+        {conflicts ? (
+          <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1">
+            <div className="flex flex-col gap-2">
+              {conflicts.map((c) => {
+                const key = conflictKey(c.adId, c.date);
+                return (
+                  <ConflictCard
+                    key={key}
+                    conflict={c}
+                    adName={ads.find((a) => a.id === c.adId)?.name ?? "This ad"}
+                    choice={resolutions[key] ?? "csv"}
+                    onChoose={(choice) => setResolutions((prev) => ({ ...prev, [key]: choice }))}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ) : !rows ? (
           <div className="flex flex-col gap-3">
             <button
               type="button"
@@ -185,7 +253,16 @@ export function UploadCsvDialog({
           </>
         )}
 
-        {rows ? (
+        {conflicts ? (
+          <DialogFooter className="mt-1 items-center gap-2 sm:justify-between">
+            <Button type="button" variant="ghost" onClick={() => setConflicts(null)} disabled={pending}>
+              Back
+            </Button>
+            <Button type="button" onClick={confirmConflicts} disabled={pending} className="rounded-full">
+              {pending ? <Loader2 className="size-4 animate-spin" /> : "Apply and import"}
+            </Button>
+          </DialogFooter>
+        ) : rows ? (
           <DialogFooter className="mt-1 items-center gap-2 sm:justify-between">
             <Button type="button" variant="ghost" onClick={() => setRows(null)} disabled={pending}>
               Back
@@ -201,6 +278,79 @@ export function UploadCsvDialog({
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ConflictCard({
+  conflict,
+  adName,
+  choice,
+  onChoose,
+}: {
+  conflict: MetricConflict;
+  adName: string;
+  choice: ConflictChoice;
+  onChoose: (choice: ConflictChoice) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="truncate text-sm font-medium text-foreground" title={adName}>
+          {adName}
+        </p>
+        <span className="shrink-0 text-xs text-muted-foreground">{formatYMD(conflict.date)}</span>
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
+        <ConflictOption
+          label="Keep current"
+          spend={conflict.existing.spend}
+          leads={conflict.existing.leads}
+          active={choice === "keep"}
+          onClick={() => onChoose("keep")}
+        />
+        <ConflictOption
+          label="Use CSV"
+          spend={conflict.incoming.spend}
+          leads={conflict.incoming.leads}
+          active={choice === "csv"}
+          onClick={() => onChoose("csv")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ConflictOption({
+  label,
+  spend,
+  leads,
+  active,
+  onClick,
+}: {
+  label: string;
+  spend: number;
+  leads: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex flex-col gap-1 rounded-lg border p-2.5 text-left transition-colors",
+        active ? "border-brand bg-brand/5" : "border-input hover:bg-secondary",
+      )}
+    >
+      <span className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+        {label}
+        {active && <Check className="size-3.5 text-brand" strokeWidth={2} />}
+      </span>
+      <span className="text-sm text-foreground">
+        {spend.toLocaleString()} spend · {leads} {leads === 1 ? "lead" : "leads"}
+      </span>
+    </button>
   );
 }
 
