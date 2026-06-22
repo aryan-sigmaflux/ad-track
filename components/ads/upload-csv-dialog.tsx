@@ -19,7 +19,13 @@ import {
   type ConflictChoice,
   type MetricConflict,
 } from "@/lib/ads/actions";
-import { extractRows, matchRows, type AdOption, type RowMatch } from "@/lib/ads/csv-import";
+import {
+  extractRows,
+  matchRow,
+  type AdOption,
+  type Confidence,
+  type CsvRow,
+} from "@/lib/ads/csv-import";
 import { formatYMD } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -33,10 +39,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-// Per-row target: an existing ad id, "new" (create), or "skip".
+// Per-ad target: an existing ad id, "new" (create), or "skip".
 type Target = string | "new" | "skip";
 
-type ReviewRow = RowMatch & { target: Target };
+// One row per distinct ad name in the CSV, carrying all of its days. The user
+// assigns a target once per ad (not per day) — much faster than one row per day.
+type ReviewGroup = {
+  name: string;
+  days: CsvRow[]; // sorted ascending by date
+  spend: number; // total across days
+  leads: number; // total across days
+  confidence: Confidence;
+  target: Target;
+};
 
 // Mirror of the server's conflict key (`${adId}|${date}`).
 const conflictKey = (adId: string, date: string) => `${adId}|${date}`;
@@ -52,7 +67,7 @@ export function UploadCsvDialog({
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [rows, setRows] = useState<ReviewRow[] | null>(null);
+  const [groups, setGroups] = useState<ReviewGroup[] | null>(null);
   const [fileName, setFileName] = useState("");
   const [parseError, setParseError] = useState("");
   const [pending, setPending] = useState(false);
@@ -63,7 +78,7 @@ export function UploadCsvDialog({
   // Reset everything as the dialog closes (handled here, not in an effect).
   const handleOpenChange = (next: boolean) => {
     if (!next) {
-      setRows(null);
+      setGroups(null);
       setFileName("");
       setParseError("");
       setConflicts(null);
@@ -85,25 +100,38 @@ export function UploadCsvDialog({
       setParseError("No ad rows found in this file.");
       return;
     }
-    const matches = matchRows(csvRows, ads);
-    setFileName(file.name);
-    // An existing ad can only be auto-assigned to one row *per day*. A multi-day
-    // report legitimately reuses the same ad across many days, but if two rows on
-    // the *same* day match it (e.g. "26_May_Aspire" and "3. 26_May_Aspire"), the
-    // later one falls back to "new" — otherwise both would import the same
-    // (ad, day) and the upsert fails.
+
+    // Collapse the CSV's day-by-day rows into one entry per distinct ad name.
+    const byName = new Map<string, CsvRow[]>();
+    for (const r of csvRows) {
+      const arr = byName.get(r.name) ?? [];
+      arr.push(r);
+      byName.set(r.name, arr);
+    }
+
+    // An existing ad can only be auto-assigned to one ad-group; if two different
+    // names fuzzy-match the same ad, the later one falls back to "new".
     const claimed = new Set<string>();
-    setRows(
-      matches.map((m) => {
-        let target: Target = m.suggestedAdId ?? "new";
-        if (target !== "new") {
-          const key = `${target}|${m.row.date}`;
-          if (claimed.has(key)) target = "new";
-          else claimed.add(key);
-        }
-        return { ...m, target };
-      }),
-    );
+    const built: ReviewGroup[] = [];
+    for (const [name, days] of byName) {
+      days.sort((a, b) => (a.date < b.date ? -1 : 1));
+      const match = matchRow(days[0], ads); // name-based, so any day represents the group
+      let target: Target = match.suggestedAdId ?? "new";
+      if (target !== "new" && claimed.has(target)) target = "new";
+      if (target !== "new") claimed.add(target);
+      built.push({
+        name,
+        days,
+        spend: days.reduce((s, d) => s + d.spend, 0),
+        leads: days.reduce((s, d) => s + d.leads, 0),
+        confidence: match.confidence,
+        target,
+      });
+    }
+    built.sort((a, b) => a.name.localeCompare(b.name));
+
+    setFileName(file.name);
+    setGroups(built);
   };
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,29 +140,31 @@ export function UploadCsvDialog({
   };
 
   const setTarget = (i: number, target: Target) =>
-    setRows((prev) => prev && prev.map((r, idx) => (idx === i ? { ...r, target } : r)));
+    setGroups((prev) => prev && prev.map((g, idx) => (idx === i ? { ...g, target } : g)));
 
-  // An existing ad can only be claimed by one row in a single upload.
+  // An existing ad can only be claimed by one ad-group in a single upload.
   const usedAdIds = useMemo(() => {
     const used = new Map<string, number>();
-    rows?.forEach((r, i) => {
-      if (r.target !== "new" && r.target !== "skip") used.set(r.target, i);
+    groups?.forEach((g, i) => {
+      if (g.target !== "new" && g.target !== "skip") used.set(g.target, i);
     });
     return used;
-  }, [rows]);
+  }, [groups]);
 
-  const importCount = rows?.filter((r) => r.target !== "skip").length ?? 0;
+  const adCount = groups?.filter((g) => g.target !== "skip").length ?? 0;
 
   const items = useMemo<CsvAssignment[]>(
     () =>
-      (rows ?? [])
-        .filter((r) => r.target !== "skip")
-        .map((r) =>
-          r.target === "new"
-            ? { kind: "new", name: r.row.name, date: r.row.date, spend: r.row.spend, leads: r.row.leads }
-            : { kind: "existing", adId: r.target, date: r.row.date, spend: r.row.spend, leads: r.row.leads },
+      (groups ?? [])
+        .filter((g) => g.target !== "skip")
+        .flatMap((g) =>
+          g.days.map((d) =>
+            g.target === "new"
+              ? { kind: "new", name: g.name, date: d.date, spend: d.spend, leads: d.leads }
+              : { kind: "existing", adId: g.target, date: d.date, spend: d.spend, leads: d.leads },
+          ),
         ),
-    [rows],
+    [groups],
   );
 
   const runImport = async (withResolutions: Record<string, ConflictChoice>) => {
@@ -144,7 +174,7 @@ export function UploadCsvDialog({
     setPending(false);
 
     if (res.ok) {
-      const parts = [`Imported ${res.count} ${res.count === 1 ? "row" : "rows"}`];
+      const parts = [`Imported ${res.count} ${res.count === 1 ? "day" : "days"} of data`];
       if (res.skipped > 0) parts.push(`${res.skipped} unchanged`);
       toast.success(parts.join(" · "));
       handleOpenChange(false);
@@ -174,15 +204,15 @@ export function UploadCsvDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className={cn(rows && "sm:max-w-2xl")}>
+      <DialogContent className={cn(groups && "sm:max-w-2xl")}>
         <DialogHeader>
           <DialogTitle>{conflicts ? "Resolve conflicts" : "Upload a CSV"}</DialogTitle>
           <DialogDescription>
             {conflicts
               ? "These ads already have data for that day. Choose which value to keep for each."
-              : rows
+              : groups
                 ? "Check each ad was matched correctly, then import. Nothing is saved until you confirm."
-                : "Upload a day's ads report. We'll fill in spend and leads for each ad."}
+                : "Upload an ads report. We'll fill in spend and leads for each ad and day."}
           </DialogDescription>
         </DialogHeader>
 
@@ -203,7 +233,7 @@ export function UploadCsvDialog({
               })}
             </div>
           </div>
-        ) : !rows ? (
+        ) : !groups ? (
           <div className="flex flex-col gap-3">
             <button
               type="button"
@@ -232,16 +262,16 @@ export function UploadCsvDialog({
             <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="truncate">{fileName}</span>
               <span className="shrink-0">
-                {rows.length} {rows.length === 1 ? "ad" : "ads"}
+                {groups.length} {groups.length === 1 ? "ad" : "ads"}
               </span>
             </div>
 
             <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1">
               <div className="flex flex-col gap-2">
-                {rows.map((r, i) => (
-                  <ReviewRowCard
-                    key={i}
-                    row={r}
+                {groups.map((g, i) => (
+                  <ReviewGroupCard
+                    key={g.name}
+                    group={g}
                     ads={ads}
                     usedBy={usedAdIds}
                     selfIndex={i}
@@ -262,16 +292,16 @@ export function UploadCsvDialog({
               {pending ? <Loader2 className="size-4 animate-spin" /> : "Apply and import"}
             </Button>
           </DialogFooter>
-        ) : rows ? (
+        ) : groups ? (
           <DialogFooter className="mt-1 items-center gap-2 sm:justify-between">
-            <Button type="button" variant="ghost" onClick={() => setRows(null)} disabled={pending}>
+            <Button type="button" variant="ghost" onClick={() => setGroups(null)} disabled={pending}>
               Back
             </Button>
-            <Button type="button" onClick={submit} disabled={pending || importCount === 0} className="rounded-full">
+            <Button type="button" onClick={submit} disabled={pending || adCount === 0} className="rounded-full">
               {pending ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
-                `Import ${importCount} ${importCount === 1 ? "row" : "rows"}`
+                `Import ${adCount} ${adCount === 1 ? "ad" : "ads"}`
               )}
             </Button>
           </DialogFooter>
@@ -354,42 +384,47 @@ function ConflictOption({
   );
 }
 
-function ReviewRowCard({
-  row,
+function ReviewGroupCard({
+  group,
   ads,
   usedBy,
   selfIndex,
   onChange,
 }: {
-  row: ReviewRow;
+  group: ReviewGroup;
   ads: AdOption[];
   usedBy: Map<string, number>;
   selfIndex: number;
   onChange: (t: Target) => void;
 }) {
-  const isNew = row.target === "new";
-  const isSkip = row.target === "skip";
-  const matchedAd = !isNew && !isSkip ? ads.find((a) => a.id === row.target) : undefined;
+  const isNew = group.target === "new";
+  const isSkip = group.target === "skip";
+  const matchedAd = !isNew && !isSkip ? ads.find((a) => a.id === group.target) : undefined;
+
+  const first = group.days[0].date;
+  const last = group.days[group.days.length - 1].date;
+  const range = first === last ? formatYMD(first) : `${formatYMD(first)} – ${formatYMD(last)}`;
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
   return (
     <div className="rounded-xl border border-border bg-card p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground" title={row.row.name}>
-            {row.row.name}
+          <p className="truncate text-sm font-medium text-foreground" title={group.name}>
+            {group.name}
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {formatYMD(row.row.date)} · {row.row.spend.toLocaleString()} spend · {row.row.leads}{" "}
-            {row.row.leads === 1 ? "lead" : "leads"}
+            {group.days.length} {group.days.length === 1 ? "day" : "days"} · {range} · {fmt(group.spend)}{" "}
+            spend · {group.leads} {group.leads === 1 ? "lead" : "leads"}
           </p>
         </div>
-        <ConfidenceBadge confidence={row.confidence} isNew={isNew} isSkip={isSkip} />
+        <ConfidenceBadge confidence={group.confidence} isNew={isNew} isSkip={isSkip} />
       </div>
 
       <div className="mt-2.5">
         <AdPicker
           ads={ads}
-          value={row.target}
+          value={group.target}
           usedBy={usedBy}
           selfIndex={selfIndex}
           onChange={onChange}
@@ -405,7 +440,7 @@ function ConfidenceBadge({
   isNew,
   isSkip,
 }: {
-  confidence: RowMatch["confidence"];
+  confidence: Confidence;
   isNew: boolean;
   isSkip: boolean;
 }) {
@@ -444,7 +479,7 @@ function Badge({ className, children }: { className?: string; children: React.Re
 }
 
 // Searchable picker: an existing ad (top matches surfaced first), "Create new ad",
-// or "Skip". Ads already claimed by another row are disabled.
+// or "Skip". Ads already claimed by another ad-group are disabled.
 function AdPicker({
   ads,
   value,
@@ -480,7 +515,7 @@ function AdPicker({
   }, [ads, search]);
 
   const label =
-    value === "new" ? "Create new ad" : value === "skip" ? "Skip this row" : (matchedName ?? "Select an ad");
+    value === "new" ? "Create new ad" : value === "skip" ? "Skip this ad" : (matchedName ?? "Select an ad");
 
   const choose = (t: Target) => {
     onChange(t);
@@ -528,7 +563,7 @@ function AdPicker({
               <span>Create new ad</span>
             </Row>
             <Row active={value === "skip"} onClick={() => choose("skip")}>
-              <span className="text-muted-foreground">Skip this row</span>
+              <span className="text-muted-foreground">Skip this ad</span>
             </Row>
             <div className="my-1 h-px bg-border" />
 

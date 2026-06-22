@@ -111,9 +111,6 @@ function AdRow({ ad, index }: { ad: AdListItem; index: number }) {
         className="relative mt-1.5 flex size-2 shrink-0 self-start"
         title={running ? "Running" : "Paused"}
       >
-        {running && (
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60" />
-        )}
         <span
           className={`relative inline-flex size-2 rounded-full ${
             running ? "bg-success" : "bg-tertiary"
