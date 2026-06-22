@@ -9,6 +9,7 @@ import { todayYMD } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ClientField } from "@/components/ads/client-field";
 import {
   Dialog,
   DialogContent,
@@ -21,9 +22,11 @@ import {
 export function AddAdDialog({
   open,
   onOpenChange,
+  clients,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  clients: string[];
 }) {
   const router = useRouter();
   const [state, action, pending] = useActionState<ActionResult | null, FormData>(
@@ -54,7 +57,7 @@ export function AddAdDialog({
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="client">Client / Company</Label>
-            <Input id="client" name="client" placeholder="Acme Inc." />
+            <ClientField id="client" clients={clients} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="start_date">Start date</Label>

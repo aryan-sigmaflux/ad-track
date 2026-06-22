@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { ClientField } from "@/components/ads/client-field";
 import {
   Dialog,
   DialogContent,
@@ -31,9 +32,10 @@ type Props = {
   status: AdStatus;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  clients: string[];
 };
 
-export function EditAdDialog({ ad, status, open, onOpenChange }: Props) {
+export function EditAdDialog({ ad, status, open, onOpenChange, clients }: Props) {
   const router = useRouter();
   const [state, action, pending] = useActionState<ActionResult | null, FormData>(
     updateAd,
@@ -110,7 +112,7 @@ export function EditAdDialog({ ad, status, open, onOpenChange }: Props) {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="edit-client">Client / Company</Label>
-            <Input id="edit-client" name="client" defaultValue={ad.client ?? ""} />
+            <ClientField id="edit-client" clients={clients} defaultValue={ad.client} />
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="edit-start">Start date</Label>

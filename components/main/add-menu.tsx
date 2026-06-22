@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export function AddMenu({ ads }: { ads: AdOption[] }) {
+export function AddMenu({ ads, clients }: { ads: AdOption[]; clients: string[] }) {
   const [addOpen, setAddOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
 
@@ -67,7 +67,7 @@ export function AddMenu({ ads }: { ads: AdOption[] }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AddAdDialog open={addOpen} onOpenChange={setAddOpen} />
+      <AddAdDialog open={addOpen} onOpenChange={setAddOpen} clients={clients} />
       <UploadCsvDialog ads={ads} open={uploadOpen} onOpenChange={setUploadOpen} />
     </>
   );

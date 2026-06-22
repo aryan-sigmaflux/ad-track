@@ -12,7 +12,7 @@ import { DayDetail } from "@/components/ads/day-detail";
 import { RangeSummary } from "@/components/ads/range-summary";
 import { EditAdDialog } from "@/components/ads/edit-ad-dialog";
 
-export function AdDetailView({ detail }: { detail: AdDetail }) {
+export function AdDetailView({ detail, clients }: { detail: AdDetail; clients: string[] }) {
   const { ad, status, periods, metrics, lastStopReason, lastStopDate } = detail;
   const [selected, setSelected] = useState(todayYMD());
   const [editOpen, setEditOpen] = useState(false);
@@ -105,7 +105,7 @@ export function AdDetailView({ detail }: { detail: AdDetail }) {
         </div>
       </div>
 
-      <EditAdDialog ad={ad} status={status} open={editOpen} onOpenChange={setEditOpen} />
+      <EditAdDialog ad={ad} status={status} open={editOpen} onOpenChange={setEditOpen} clients={clients} />
     </main>
   );
 }

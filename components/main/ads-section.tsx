@@ -24,6 +24,12 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
     );
   }, [ads]);
 
+  // Real client names (no sentinel) for the "add ad" picker.
+  const clientNames = useMemo(
+    () => clients.filter((c) => c !== NO_CLIENT),
+    [clients],
+  );
+
   const toggleClient = (c: string) =>
     setSelectedClients((prev) =>
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
@@ -87,7 +93,7 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
         )}
       </section>
 
-      <AddMenu ads={ads.map((a) => ({ id: a.id, name: a.name }))} />
+      <AddMenu ads={ads.map((a) => ({ id: a.id, name: a.name }))} clients={clientNames} />
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
-import { getAdDetail } from "@/lib/ads/queries";
+import { getAdDetail, getClientNames } from "@/lib/ads/queries";
 import { AdDetailView } from "@/components/ads/ad-detail";
 
 export default async function AdPage({
@@ -12,8 +12,11 @@ export default async function AdPage({
   if (!session) redirect("/login");
 
   const { id } = await params;
-  const detail = await getAdDetail(id, session.userId);
+  const [detail, clients] = await Promise.all([
+    getAdDetail(id, session.userId),
+    getClientNames(session.userId),
+  ]);
   if (!detail) notFound();
 
-  return <AdDetailView detail={detail} />;
+  return <AdDetailView detail={detail} clients={clients} />;
 }

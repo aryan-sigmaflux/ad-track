@@ -40,6 +40,24 @@ export async function getAds(userId: string): Promise<AdListItem[]> {
   }));
 }
 
+/** Distinct, non-empty client names for a user, sorted alphabetically. Used to
+ *  populate the client picker in the ad forms. */
+export async function getClientNames(userId: string): Promise<string[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ads")
+    .select("client")
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+
+  const set = new Set<string>();
+  for (const row of data ?? []) {
+    const name = row.client?.trim();
+    if (name) set.add(name);
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
 /** Aggregated detail for one client (category). `clientKey` is the exact client
  *  string, or null for the "Others" group (ads with no client). Returns null when
  *  the user has no ads in that category. */
