@@ -6,7 +6,7 @@ import { ChevronRight, Search } from "lucide-react";
 import type { AdListItem } from "@/lib/types";
 import { formatYMD } from "@/lib/dates";
 import { Input } from "@/components/ui/input";
-import { AddAdDialog } from "@/components/ads/add-ad-dialog";
+import { AddMenu } from "@/components/main/add-menu";
 import { AdsFilter } from "@/components/main/ads-filter";
 import { NO_CLIENT, type StatusFilter } from "@/lib/filters";
 
@@ -87,7 +87,7 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
         )}
       </section>
 
-      <AddAdDialog />
+      <AddMenu ads={ads.map((a) => ({ id: a.id, name: a.name }))} />
     </>
   );
 }

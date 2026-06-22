@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-import { CircleOff, Play, Square } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CircleOff, Pencil, Play, Square } from "lucide-react";
 import type { AdDailyMetric, AdRunPeriod } from "@/lib/types";
 import { cpl, formatYMD, fromYMD, todayYMD } from "@/lib/dates";
+import { EditRunDialog } from "@/components/ads/edit-run-dialog";
 
 const num = (n: number) =>
   new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(n);
@@ -22,6 +23,7 @@ export function SelectedRun({
   selected: string;
 }) {
   const today = todayYMD();
+  const [editOpen, setEditOpen] = useState(false);
 
   // The run period that covers the selected date (open periods run through today).
   const run = periods.find(
@@ -63,21 +65,31 @@ export function SelectedRun({
     <div className="rounded-2xl border border-border bg-card p-4 shadow-[0_2px_8px_rgba(0,0,0,0.06)]">
       <div className="flex items-center justify-between">
         <p className="text-[11px] uppercase tracking-wide text-tertiary">Ad run</p>
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-            ongoing ? "bg-success/15 text-foreground" : "bg-secondary text-muted-foreground"
-          }`}
-        >
-          {ongoing ? (
-            <>
-              <Play className="size-3 text-success" strokeWidth={2.5} /> Running
-            </>
-          ) : (
-            <>
-              <Square className="size-3" strokeWidth={2} /> Ended
-            </>
-          )}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+              ongoing ? "bg-success/15 text-foreground" : "bg-secondary text-muted-foreground"
+            }`}
+          >
+            {ongoing ? (
+              <>
+                <Play className="size-3 text-success" strokeWidth={2.5} /> Running
+              </>
+            ) : (
+              <>
+                <Square className="size-3" strokeWidth={2} /> Ended
+              </>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            aria-label="Edit run"
+            className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <Pencil className="size-3.5" strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-col gap-2 text-sm">
@@ -102,6 +114,8 @@ export function SelectedRun({
           <p className="mt-0.5">{run.stop_reason}</p>
         </div>
       ) : null}
+
+      <EditRunDialog key={run.id} run={run} open={editOpen} onOpenChange={setEditOpen} />
     </div>
   );
 }

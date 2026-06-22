@@ -1,8 +1,8 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createAd, type ActionResult } from "@/lib/ads/actions";
 import { todayYMD } from "@/lib/dates";
@@ -18,9 +18,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export function AddAdDialog() {
+export function AddAdDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState<ActionResult | null, FormData>(
     createAd,
     null,
@@ -29,66 +34,46 @@ export function AddAdDialog() {
   useEffect(() => {
     if (state?.ok) {
       toast.success("Ad added");
-      setOpen(false);
+      onOpenChange(false);
       router.refresh();
     }
-  }, [state, router]);
+  }, [state, router, onOpenChange]);
 
   return (
-    <>
-      {/* Floating add button — circle on mobile, labeled pill on desktop */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label="Add new ad"
-        className="group fixed bottom-7 left-1/2 z-40 flex size-15 -translate-x-1/2 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-brand to-primary text-primary-foreground shadow-[0_12px_30px_-6px_color-mix(in_oklch,var(--brand)_70%,transparent)] ring-1 ring-white/10 transition-transform duration-200 hover:scale-105 active:scale-95 md:bottom-8 md:left-auto md:right-8 md:size-auto md:translate-x-0 md:px-6 md:py-4"
-      >
-        <span
-          aria-hidden
-          className="absolute inset-0 -z-10 rounded-full bg-brand/40 opacity-0 blur-md transition-opacity duration-300 group-hover:opacity-100"
-        />
-        <Plus
-          className="size-7 transition-transform duration-300 group-hover:rotate-90 md:size-5"
-          strokeWidth={2.5}
-        />
-        <span className="hidden text-[15px] font-semibold md:inline">New ad</span>
-      </button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New ad</DialogTitle>
+          <DialogDescription>Add a campaign to start tracking it.</DialogDescription>
+        </DialogHeader>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New ad</DialogTitle>
-            <DialogDescription>Add a campaign to start tracking it.</DialogDescription>
-          </DialogHeader>
+        <form action={action} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" name="name" placeholder="Summer sale promo" required />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="client">Client / Company</Label>
+            <Input id="client" name="client" placeholder="Acme Inc." />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="start_date">Start date</Label>
+            <Input id="start_date" name="start_date" type="date" defaultValue={todayYMD()} required />
+          </div>
 
-          <form action={action} className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" name="name" placeholder="Summer sale promo" required />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="client">Client / Company</Label>
-              <Input id="client" name="client" placeholder="Acme Inc." />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="start_date">Start date</Label>
-              <Input id="start_date" name="start_date" type="date" defaultValue={todayYMD()} required />
-            </div>
+          {state && !state.ok ? (
+            <p className="text-sm text-destructive" role="alert">
+              {state.error}
+            </p>
+          ) : null}
 
-            {state && !state.ok ? (
-              <p className="text-sm text-destructive" role="alert">
-                {state.error}
-              </p>
-            ) : null}
-
-            <DialogFooter className="mt-1">
-              <Button type="submit" disabled={pending} className="h-11 rounded-full">
-                {pending ? <Loader2 className="size-4 animate-spin" /> : "Add ad"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </>
+          <DialogFooter className="mt-1">
+            <Button type="submit" disabled={pending} className="h-11 rounded-full">
+              {pending ? <Loader2 className="size-4 animate-spin" /> : "Add ad"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

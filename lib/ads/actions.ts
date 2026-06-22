@@ -175,6 +175,85 @@ export async function restartAd(adId: string, startDate: string): Promise<Action
   }
 }
 
+/** Edit a run period's start/end dates. An empty `endDate` makes it ongoing. */
+export async function updateRunPeriod(
+  periodId: string,
+  startDate: string,
+  endDate: string | null,
+): Promise<ActionResult> {
+  try {
+    const { userId } = await requireUser();
+    const supabase = createAdminClient();
+
+    const { data: period } = await supabase
+      .from("ad_run_periods")
+      .select("id, ad_id")
+      .eq("id", periodId)
+      .maybeSingle();
+    if (!period) return { ok: false, error: "Run not found." };
+    await assertOwnedAd(supabase, period.ad_id, userId);
+
+    const start = String(startDate).slice(0, 10);
+    const end = endDate ? String(endDate).slice(0, 10) : null;
+    if (!start) return { ok: false, error: "A start date is required." };
+    if (end && end < start)
+      return { ok: false, error: "End date can't be before the start date." };
+
+    // The ad can only have one open (still-running) period at a time.
+    if (end === null) {
+      const { data: otherOpen } = await supabase
+        .from("ad_run_periods")
+        .select("id")
+        .eq("ad_id", period.ad_id)
+        .is("end_date", null)
+        .neq("id", periodId)
+        .maybeSingle();
+      if (otherOpen)
+        return { ok: false, error: "This ad already has another running period. End it first." };
+    }
+
+    const update: { start_date: string; end_date: string | null; stop_reason?: null } = {
+      start_date: start,
+      end_date: end,
+    };
+    if (end === null) update.stop_reason = null; // constraint: a reason requires an end date
+
+    const { error } = await supabase.from("ad_run_periods").update(update).eq("id", periodId);
+    if (error) return { ok: false, error: "Could not update the run." };
+
+    revalidatePath("/");
+    revalidatePath(`/ads/${period.ad_id}`);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Something went wrong." };
+  }
+}
+
+/** Delete a single run period (e.g. one created by accident). */
+export async function deleteRunPeriod(periodId: string): Promise<ActionResult> {
+  try {
+    const { userId } = await requireUser();
+    const supabase = createAdminClient();
+
+    const { data: period } = await supabase
+      .from("ad_run_periods")
+      .select("id, ad_id")
+      .eq("id", periodId)
+      .maybeSingle();
+    if (!period) return { ok: false, error: "Run not found." };
+    await assertOwnedAd(supabase, period.ad_id, userId);
+
+    const { error } = await supabase.from("ad_run_periods").delete().eq("id", periodId);
+    if (error) return { ok: false, error: "Could not delete the run." };
+
+    revalidatePath("/");
+    revalidatePath(`/ads/${period.ad_id}`);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Something went wrong." };
+  }
+}
+
 // ── Daily metrics ────────────────────────────────────────────────────────────
 
 export async function upsertMetric(
@@ -202,6 +281,81 @@ export async function upsertMetric(
     return { ok: true };
   } catch {
     return { ok: false, error: "Something went wrong." };
+  }
+}
+
+// ── CSV import ───────────────────────────────────────────────────────────────
+
+export type CsvAssignment =
+  | { kind: "existing"; adId: string; date: string; spend: number; leads: number }
+  | { kind: "new"; name: string; date: string; spend: number; leads: number };
+
+/** Apply a reviewed CSV upload: create ads for "new" rows, then upsert one daily
+ *  metric per row. Ownership is checked once up-front. */
+export async function importCsvMetrics(
+  items: CsvAssignment[],
+): Promise<ActionResult & { count?: number }> {
+  try {
+    const { userId } = await requireUser();
+    if (items.length === 0) return { ok: false, error: "Nothing to import." };
+
+    const supabase = createAdminClient();
+
+    // Validate every "existing" target belongs to this user (one query).
+    const existingIds = Array.from(
+      new Set(items.filter((i) => i.kind === "existing").map((i) => (i as { adId: string }).adId)),
+    );
+    if (existingIds.length > 0) {
+      const { data: owned } = await supabase
+        .from("ads")
+        .select("id")
+        .eq("user_id", userId)
+        .in("id", existingIds);
+      const ownedSet = new Set((owned ?? []).map((a) => a.id));
+      if (existingIds.some((id) => !ownedSet.has(id)))
+        return { ok: false, error: "One of the selected ads could not be found." };
+    }
+
+    // Build the metric rows, creating new ads as needed.
+    const metricRows: { ad_id: string; date: string; spend: number; leads: number }[] = [];
+    for (const item of items) {
+      const date = String(item.date).slice(0, 10);
+      const spend = Number(item.spend);
+      const leads = Math.trunc(Number(item.leads));
+      if (!date) continue;
+      if (!Number.isFinite(spend) || spend < 0) continue;
+      const safeLeads = Number.isFinite(leads) && leads >= 0 ? leads : 0;
+
+      let adId: string;
+      if (item.kind === "new") {
+        const name = cleanText(item.name);
+        if (!name) continue;
+        const { data: ad, error } = await supabase
+          .from("ads")
+          .insert({ user_id: userId, name, client: null, start_date: date })
+          .select("id")
+          .single();
+        if (error || !ad) return { ok: false, error: `Could not create the ad "${name}".` };
+        await supabase.from("ad_run_periods").insert({ ad_id: ad.id, start_date: date, end_date: null });
+        adId = ad.id;
+      } else {
+        adId = item.adId;
+      }
+      metricRows.push({ ad_id: adId, date, spend, leads: safeLeads });
+    }
+
+    if (metricRows.length === 0) return { ok: false, error: "Nothing to import." };
+
+    const { error } = await supabase
+      .from("ad_daily_metrics")
+      .upsert(metricRows, { onConflict: "ad_id,date" });
+    if (error) return { ok: false, error: "Could not save the imported data." };
+
+    revalidatePath("/");
+    for (const id of new Set(metricRows.map((m) => m.ad_id))) revalidatePath(`/ads/${id}`);
+    return { ok: true, count: metricRows.length };
+  } catch {
+    return { ok: false, error: "Something went wrong during import." };
   }
 }
 
