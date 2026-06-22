@@ -201,6 +201,15 @@ export function matchRow(row: CsvRow, ads: AdOption[]): RowMatch {
     .sort((x, y) => y.score - x.score)
     .slice(0, 5);
 
+  // Naive check first: if the CSV name is literally one of the ad names
+  // (case-insensitive, trimmed), that's the match — skip all the fuzzy logic.
+  // Only shortcut when it's unambiguous (exactly one ad has that name).
+  const literal = row.name.trim().toLowerCase();
+  const exactMatches = ads.filter((a) => a.name.trim().toLowerCase() === literal);
+  if (exactMatches.length === 1) {
+    return { row, candidates, suggestedAdId: exactMatches[0].id, confidence: "strong" };
+  }
+
   const best = candidates[0];
   const second = candidates[1];
   let confidence: Confidence = "none";

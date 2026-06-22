@@ -87,16 +87,20 @@ export function UploadCsvDialog({
     }
     const matches = matchRows(csvRows, ads);
     setFileName(file.name);
-    // An existing ad can only be auto-assigned to one row. If two rows fuzzy-match
-    // the same ad (e.g. "26_May_Aspire" and "3. 26_May_Aspire"), the later one
-    // falls back to "new" so the user can resolve it — otherwise both rows would
-    // import the same (ad, day) and the upsert fails.
+    // An existing ad can only be auto-assigned to one row *per day*. A multi-day
+    // report legitimately reuses the same ad across many days, but if two rows on
+    // the *same* day match it (e.g. "26_May_Aspire" and "3. 26_May_Aspire"), the
+    // later one falls back to "new" — otherwise both would import the same
+    // (ad, day) and the upsert fails.
     const claimed = new Set<string>();
     setRows(
       matches.map((m) => {
         let target: Target = m.suggestedAdId ?? "new";
-        if (target !== "new" && claimed.has(target)) target = "new";
-        if (target !== "new") claimed.add(target);
+        if (target !== "new") {
+          const key = `${target}|${m.row.date}`;
+          if (claimed.has(key)) target = "new";
+          else claimed.add(key);
+        }
         return { ...m, target };
       }),
     );

@@ -345,8 +345,9 @@ export async function importCsvMetrics(
     const rowsToWrite: Row[] = [];
     let skipped = 0;
 
-    // Normalize the "existing" rows, de-duped by (ad, day) — a single command
-    // can't upsert the same conflict target twice.
+    // Normalize the "existing" rows, collapsed by (ad, day) — a single command
+    // can't upsert the same conflict target twice. Repeated (ad, day) rows are
+    // summed (Meta splits a day across placements), matching the "new" ad path.
     const incoming = new Map<string, Row>();
     for (const item of existingItems) {
       const date = String(item.date).slice(0, 10);
@@ -354,7 +355,14 @@ export async function importCsvMetrics(
       const leads = Math.trunc(Number(item.leads));
       if (!date || !Number.isFinite(spend) || spend < 0) continue;
       const safeLeads = Number.isFinite(leads) && leads >= 0 ? leads : 0;
-      incoming.set(conflictKey(item.adId, date), { ad_id: item.adId, date, spend, leads: safeLeads });
+      const key = conflictKey(item.adId, date);
+      const prev = incoming.get(key);
+      incoming.set(key, {
+        ad_id: item.adId,
+        date,
+        spend: (prev?.spend ?? 0) + spend,
+        leads: (prev?.leads ?? 0) + safeLeads,
+      });
     }
 
     // Look up whatever already exists for those (ad, day) pairs.
@@ -393,7 +401,11 @@ export async function importCsvMetrics(
     if (conflicts.length > 0)
       return { ok: false, error: "Some rows already have data for that day.", conflicts };
 
-    // Now safe to create "new" ads — brand-new rows can't conflict.
+    // Now safe to create "new" ads — brand-new rows can't conflict. Group rows
+    // by name so a multi-day report creates ONE ad per name (carrying all of its
+    // days), not one ad per row. Rows repeating the same (name, day) are summed:
+    // Meta can split a day across placements, but an ad holds one row per day.
+    const newAds = new Map<string, Map<string, { spend: number; leads: number }>>();
     for (const item of items) {
       if (item.kind !== "new") continue;
       const date = String(item.date).slice(0, 10);
@@ -403,17 +415,32 @@ export async function importCsvMetrics(
       const safeLeads = Number.isFinite(leads) && leads >= 0 ? leads : 0;
       const name = cleanText(item.name);
       if (!name) continue;
+      const byDate = newAds.get(name) ?? new Map<string, { spend: number; leads: number }>();
+      const prev = byDate.get(date);
+      byDate.set(date, {
+        spend: (prev?.spend ?? 0) + spend,
+        leads: (prev?.leads ?? 0) + safeLeads,
+      });
+      newAds.set(name, byDate);
+    }
+
+    for (const [name, byDate] of newAds) {
+      const dates = Array.from(byDate.keys()).sort();
+      const startDate = dates[0];
       const { data: ad, error } = await supabase
         .from("ads")
-        .insert({ user_id: userId, name, client: null, start_date: date })
+        .insert({ user_id: userId, name, client: null, start_date: startDate })
         .select("id")
         .single();
       if (error || !ad) {
         console.error("[importCsvMetrics] create ad failed:", error);
         return { ok: false, error: `Could not create the ad "${name}".` };
       }
-      await supabase.from("ad_run_periods").insert({ ad_id: ad.id, start_date: date, end_date: null });
-      rowsToWrite.push({ ad_id: ad.id, date, spend, leads: safeLeads });
+      await supabase.from("ad_run_periods").insert({ ad_id: ad.id, start_date: startDate, end_date: null });
+      for (const date of dates) {
+        const { spend, leads } = byDate.get(date)!;
+        rowsToWrite.push({ ad_id: ad.id, date, spend, leads });
+      }
     }
 
     if (rowsToWrite.length === 0) {
