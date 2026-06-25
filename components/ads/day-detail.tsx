@@ -49,11 +49,19 @@ export function DayDetail({
       </div>
 
       {metric ? (
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <Stat label="Spend" value={num(metric.spend)} />
-          <Stat label="Leads" value={num(metric.leads)} />
-          <Stat label="CPL" value={c === null ? "—" : num(c)} />
-        </div>
+        <>
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <Stat label="Spend" value={num(metric.spend)} />
+            <Stat label="Leads" value={num(metric.leads)} />
+            <Stat label="CPL" value={c === null ? "—" : num(c)} />
+          </div>
+          {metric.remarks ? (
+            <div className="mt-3 rounded-xl bg-secondary px-3 py-2 text-sm">
+              <p className="text-[11px] uppercase tracking-wide text-tertiary">Remarks</p>
+              <p className="mt-0.5 whitespace-pre-wrap">{metric.remarks}</p>
+            </div>
+          ) : null}
+        </>
       ) : (
         <p className="mt-3 text-sm text-muted-foreground">No data recorded for this day.</p>
       )}
@@ -63,6 +71,7 @@ export function DayDetail({
         date={date}
         spend={metric ? metric.spend : null}
         leads={metric ? metric.leads : null}
+        remarks={metric ? metric.remarks : null}
         open={open}
         onOpenChange={setOpen}
       />

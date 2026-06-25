@@ -261,6 +261,7 @@ export async function upsertMetric(
   date: string,
   spend: number,
   leads: number,
+  remarks: string = "",
 ): Promise<ActionResult> {
   try {
     const { userId } = await requireUser();
@@ -271,9 +272,14 @@ export async function upsertMetric(
     if (!Number.isFinite(spend) || spend < 0) return { ok: false, error: "Spend must be 0 or more." };
     if (!Number.isInteger(leads) || leads < 0) return { ok: false, error: "Leads must be a whole number." };
 
+    const cleanRemarks = String(remarks ?? "").trim().slice(0, 1000);
+
     const { error } = await supabase
       .from("ad_daily_metrics")
-      .upsert({ ad_id: adId, date, spend, leads }, { onConflict: "ad_id,date" });
+      .upsert(
+        { ad_id: adId, date, spend, leads, remarks: cleanRemarks || null },
+        { onConflict: "ad_id,date" },
+      );
 
     if (error) return { ok: false, error: "Could not save the data." };
 

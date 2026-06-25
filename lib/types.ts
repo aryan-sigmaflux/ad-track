@@ -25,6 +25,7 @@ export type AdDailyMetric = {
   date: string; // 'YYYY-MM-DD'
   spend: number;
   leads: number;
+  remarks: string | null;
   created_at: string;
   updated_at: string;
 };

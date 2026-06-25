@@ -9,6 +9,7 @@ import { formatYMD } from "@/lib/dates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -23,15 +24,17 @@ type Props = {
   date: string;
   spend: number | null;
   leads: number | null;
+  remarks: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function MetricDialog({ adId, date, spend, leads, open, onOpenChange }: Props) {
+export function MetricDialog({ adId, date, spend, leads, remarks, open, onOpenChange }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [spendVal, setSpendVal] = useState("");
   const [leadsVal, setLeadsVal] = useState("");
+  const [remarksVal, setRemarksVal] = useState("");
 
   const hasExisting = spend !== null || leads !== null;
 
@@ -39,14 +42,15 @@ export function MetricDialog({ adId, date, spend, leads, open, onOpenChange }: P
     if (open) {
       setSpendVal(spend !== null ? String(spend) : "");
       setLeadsVal(leads !== null ? String(leads) : "");
+      setRemarksVal(remarks ?? "");
     }
-  }, [open, spend, leads]);
+  }, [open, spend, leads, remarks]);
 
   const save = () => {
     const s = Number(spendVal || 0);
     const l = Number(leadsVal || 0);
     startTransition(async () => {
-      const res = await upsertMetric(adId, date, s, Math.trunc(l));
+      const res = await upsertMetric(adId, date, s, Math.trunc(l), remarksVal);
       if (res.ok) {
         toast.success("Saved");
         onOpenChange(false);
@@ -103,6 +107,16 @@ export function MetricDialog({ adId, date, spend, leads, open, onOpenChange }: P
               value={leadsVal}
               onChange={(e) => setLeadsVal(e.target.value)}
               placeholder="0"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="remarks">Remarks</Label>
+            <Textarea
+              id="remarks"
+              value={remarksVal}
+              onChange={(e) => setRemarksVal(e.target.value)}
+              placeholder="Optional notes for this day"
+              rows={3}
             />
           </div>
         </div>

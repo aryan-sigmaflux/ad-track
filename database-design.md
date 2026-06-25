@@ -102,6 +102,7 @@ Per-day performance for an ad. A day with no data simply has no row (calendar sh
 | `date` | `date` | not null | The metric day. |
 | `spend` | `numeric(12,2)` | not null, default 0, `>= 0` | Money spent that day. |
 | `leads` | `integer` | not null, default 0, `>= 0` | Leads generated that day. |
+| `remarks` | `text` | nullable | Optional free-text notes for that day. |
 | `created_at` | `timestamptz` | not null, default `now()` | |
 | `updated_at` | `timestamptz` | not null, default `now()` | Auto-updated by trigger. |
 
@@ -240,6 +241,7 @@ create table if not exists public.ad_daily_metrics (
   date       date not null,
   spend      numeric(12,2) not null default 0,
   leads      integer not null default 0,
+  remarks    text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint spend_non_negative check (spend >= 0),
