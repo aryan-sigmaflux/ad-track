@@ -73,6 +73,8 @@ One advertising campaign owned by a user. Drives the main list (`name`, `client`
 | `name` | `text` | not null | Shown dark/bold in the list. |
 | `client` | `text` | nullable | Client / company, shown lighter. |
 | `start_date` | `date` | not null | The ad's original start date. |
+| `board_column` | `text` | not null, default `'all'`, check in (`all`, `winning`, `losing`) | Kanban column on the home board (migration `0003`). |
+| `board_position` | `integer` | nullable | Manual order within the column, 1-based (migration `0004`). `NULL` = never placed; sorts first, newest first. Written by `reorder_board_column()`. |
 | `created_at` | `timestamptz` | not null, default `now()` | |
 | `updated_at` | `timestamptz` | not null, default `now()` | Auto-updated by trigger. |
 
@@ -279,6 +281,8 @@ export type Ad = {
   name: string;
   client: string | null;
   start_date: string;      // 'YYYY-MM-DD'
+  board_column: AdBoardColumn;
+  board_position: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -301,6 +305,8 @@ export type AdDailyMetric = {
   created_at: string;
   updated_at: string;
 };
+
+export type AdBoardColumn = "all" | "winning" | "losing";
 
 // derived, not stored
 export type AdStatus = "running" | "stopped";

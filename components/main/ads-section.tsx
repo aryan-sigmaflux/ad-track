@@ -1,13 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { ChevronRight, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import type { AdListItem } from "@/lib/types";
-import { formatYMD } from "@/lib/dates";
 import { Input } from "@/components/ui/input";
 import { AddMenu } from "@/components/main/add-menu";
 import { AdsFilter } from "@/components/main/ads-filter";
+import { AdsBoard } from "@/components/main/ads-board";
 import { NO_CLIENT, type StatusFilter } from "@/lib/filters";
 
 export function AdsSection({ ads }: { ads: AdListItem[] }) {
@@ -55,6 +54,8 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
     });
   }, [ads, query, status, selectedClients]);
 
+  const visibleIds = useMemo(() => new Set(filtered.map((a) => a.id)), [filtered]);
+
   const filtersActive = status !== "all" || selectedClients.length > 0;
 
   return (
@@ -84,69 +85,29 @@ export function AdsSection({ ads }: { ads: AdListItem[] }) {
         />
       </div>
 
-      {/* List */}
-      <section className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.length === 0 ? (
-          <EmptyState hasAds={ads.length > 0} filtered={query.trim() !== "" || filtersActive} />
-        ) : (
-          filtered.map((ad, i) => <AdRow key={ad.id} ad={ad} index={i} />)
-        )}
-      </section>
+      {/* Board */}
+      {ads.length === 0 ? (
+        <section className="mt-5">
+          <EmptyState />
+        </section>
+      ) : (
+        <AdsBoard
+          ads={ads}
+          visibleIds={visibleIds}
+          filtered={query.trim() !== "" || filtersActive}
+        />
+      )}
 
       <AddMenu ads={ads.map((a) => ({ id: a.id, name: a.name }))} clients={clientNames} />
     </>
   );
 }
 
-function AdRow({ ad, index }: { ad: AdListItem; index: number }) {
-  const running = ad.status === "running";
-  return (
-    <Link
-      href={`/ads/${ad.id}`}
-      style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}
-      className="group flex animate-rise items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-[0_2px_8px_rgba(0,0,0,0.06)] transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/30 hover:shadow-[0_10px_24px_-8px_rgba(0,0,0,0.18)]"
-    >
-      <span
-        aria-hidden
-        className="relative mt-1.5 flex size-2 shrink-0 self-start"
-        title={running ? "Running" : "Paused"}
-      >
-        <span
-          className={`relative inline-flex size-2 rounded-full ${
-            running ? "bg-success" : "bg-tertiary"
-          }`}
-        />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="truncate font-semibold text-foreground">{ad.name}</p>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {formatYMD(ad.start_date)}
-          </span>
-        </div>
-        <p className="truncate text-sm text-muted-foreground">{ad.client || "—"}</p>
-      </div>
-      <ChevronRight
-        className="size-4 shrink-0 text-tertiary transition-all group-hover:translate-x-0.5 group-hover:text-brand"
-        strokeWidth={1.5}
-      />
-    </Link>
-  );
-}
-
-function EmptyState({ hasAds, filtered }: { hasAds: boolean; filtered: boolean }) {
+function EmptyState() {
   return (
     <div className="col-span-full mt-10 flex flex-col items-center gap-1 rounded-2xl border border-dashed border-border bg-card/50 px-6 py-12 text-center">
-      <p className="font-medium text-foreground">
-        {filtered ? "No matches" : hasAds ? "No matches" : "No ads yet"}
-      </p>
-      <p className="text-sm text-muted-foreground">
-        {filtered
-          ? "Try adjusting your search or filters."
-          : hasAds
-            ? "Try a different search."
-            : "Tap the + button to add your first ad."}
-      </p>
+      <p className="font-medium text-foreground">No ads yet</p>
+      <p className="text-sm text-muted-foreground">Tap the + button to add your first ad.</p>
     </div>
   );
 }

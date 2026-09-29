@@ -6,9 +6,14 @@ export type Ad = {
   name: string;
   client: string | null;
   start_date: string; // 'YYYY-MM-DD'
+  board_column: AdBoardColumn;
+  board_position: number | null; // manual order within the column; null = unplaced
   created_at: string;
   updated_at: string;
 };
+
+/** Kanban column on the home board. */
+export type AdBoardColumn = "all" | "winning" | "losing";
 
 export type AdRunPeriod = {
   id: string;

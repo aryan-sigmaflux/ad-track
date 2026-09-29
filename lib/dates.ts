@@ -96,6 +96,31 @@ export function formatYMD(s: string): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
 }
 
+/** Short numeric date like "29/09/26" (dd/mm/yy). */
+export function formatDMY(s: string): string {
+  const [y, m, d] = s.split("-");
+  return `${d}/${m}/${y.slice(-2)}`;
+}
+
+/** Parse "dd/mm/yy" (years are 20yy) into 'YYYY-MM-DD', or null if it isn't a
+ *  real calendar date. */
+export function parseDMY(s: string): string | null {
+  const match = /^(\d{1,2})\/(\d{1,2})\/(\d{2})$/.exec(s.trim());
+  if (!match) return null;
+  const [day, month, year] = [Number(match[1]), Number(match[2]), 2000 + Number(match[3])];
+  const d = new Date(year, month - 1, day);
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return toYMD(d);
+}
+
+/** Format free typing into "dd/mm/yy" as digits come in (slashes are added
+ *  only once the next digit exists, so backspace works naturally). */
+export function maskDMY(input: string): string {
+  const digits = input.replace(/\D/g, "").slice(0, 6);
+  const parts = [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 6)].filter(Boolean);
+  return parts.join("/");
+}
+
 /** CPL = spend / leads, or null when leads is 0. */
 export function cpl(spend: number, leads: number): number | null {
   return leads > 0 ? spend / leads : null;

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession } from "@/lib/auth/session";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AdBoardColumn } from "@/lib/types";
 
 export type ActionResult = { ok: true; id?: string } | { ok: false; error: string };
 
@@ -96,6 +97,54 @@ export async function deleteAd(adId: string): Promise<ActionResult> {
     await assertOwnedAd(supabase, adId, userId);
     const { error } = await supabase.from("ads").delete().eq("id", adId);
     if (error) return { ok: false, error: "Could not delete the ad." };
+    revalidatePath("/");
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Something went wrong." };
+  }
+}
+
+const BOARD_COLUMNS: AdBoardColumn[] = ["all", "winning", "losing"];
+
+/** Save the home board's card order. `columns` maps each changed column to its
+ *  full list of ad ids, top to bottom; ads listed under a column move into it. */
+export async function reorderBoard(
+  columns: Partial<Record<AdBoardColumn, string[]>>,
+): Promise<ActionResult> {
+  try {
+    const { userId } = await requireUser();
+    const entries = Object.entries(columns) as [AdBoardColumn, string[]][];
+    if (entries.some(([col, ids]) => !BOARD_COLUMNS.includes(col) || !Array.isArray(ids)))
+      return { ok: false, error: "Unknown column." };
+
+    const allIds = entries.flatMap(([, ids]) => ids.map(String));
+    if (new Set(allIds).size !== allIds.length)
+      return { ok: false, error: "An ad can only be in one column." };
+
+    const supabase = createAdminClient();
+    if (allIds.length > 0) {
+      const { data: owned } = await supabase
+        .from("ads")
+        .select("id")
+        .eq("user_id", userId)
+        .in("id", allIds);
+      if ((owned ?? []).length !== allIds.length)
+        return { ok: false, error: "One of the ads could not be found." };
+    }
+
+    for (const [column, ids] of entries) {
+      if (ids.length === 0) continue;
+      const { error } = await supabase.rpc("reorder_board_column", {
+        p_user: userId,
+        p_column: column,
+        p_ids: ids,
+      });
+      if (error) {
+        console.error("[reorderBoard] rpc failed:", error);
+        return { ok: false, error: "Could not save the board." };
+      }
+    }
+
     revalidatePath("/");
     return { ok: true };
   } catch {
